@@ -1806,6 +1806,92 @@ class LootBuyerAccessibilityService : AccessibilityService() {
         return true
     }
 
+    private fun isMarkAllAsReadButtonText(text: String): Boolean {
+        val t = text.lowercase()
+        return t.contains("mark") ||
+               t.contains("read") ||
+               t.contains("marked") ||
+               t.contains("все как") ||
+               t.contains("прочитать") ||
+               t.contains("прочитано") ||
+               t.contains("отметить") ||
+               t.contains("все") ||
+               t.contains("всё") ||
+               isConfirmButtonText(t)
+    }
+
+    private fun isMailMarketBuyOfferDialog(lines: List<com.google.mlkit.vision.text.Text.Line>): Boolean {
+        val fullText = lines.joinToString(" ") { it.text.lowercase() }
+        return (fullText.contains("market") && fullText.contains("offer")) ||
+               fullText.contains("market buy") || 
+               fullText.contains("buy offer") || 
+               fullText.contains("buyoffer") ||
+               fullText.contains("mark all") ||
+               fullText.contains("as read") ||
+               fullText.contains("marked all") ||
+               (fullText.contains("mark") && fullText.contains("read")) ||
+               (fullText.contains("mail") && (fullText.contains("offer") || fullText.contains("market") || fullText.contains("read") || fullText.contains("+1"))) ||
+               (fullText.contains("почта") && (fullText.contains("предложен") || fullText.contains("рынок") || fullText.contains("прочитат") || fullText.contains("+1"))) ||
+               fullText.contains("рыночное предложение") ||
+               fullText.contains("предложение о покупке")
+    }
+
+    private suspend fun findMarkAllAsReadCoordinates(
+        lines: List<com.google.mlkit.vision.text.Text.Line>,
+        scaleX: Float,
+        scaleY: Float,
+        screenWidth: Float,
+        screenHeight: Float
+    ): Pair<Float, Float> {
+        // 1. Look for text explicitly matching 'Mark all as READ' in bottom region of dialog (Y: 72%..92%)
+        val markAllLines = lines.filter { line ->
+            val bounds = line.boundingBox
+            if (bounds != null) {
+                val cY = bounds.centerY() * scaleY
+                val cX = bounds.centerX() * scaleX
+                val cYPercent = cY / screenHeight
+                val cXPercent = cX / screenWidth
+                cYPercent in 0.70f..0.92f && cXPercent in 0.20f..0.80f && isMarkAllAsReadButtonText(line.text)
+            } else false
+        }
+
+        val bestLine = markAllLines.maxByOrNull { it.boundingBox?.centerY() ?: 0 }
+        if (bestLine != null) {
+            val bounds = bestLine.boundingBox!!
+            val cX = bounds.centerX() * scaleX
+            val cY = bounds.centerY() * scaleY
+            AutoBuyerLogs.addLog("🎯 [КНОПКА НАЙДЕНА ПО ТЕКСТУ] '${bestLine.text}' в координатах (${cX.toInt()}, ${cY.toInt()})")
+            return Pair(cX, cY)
+        }
+
+        // 2. Look for any bottom-anchored action button in Mail dialog (Y: 76%..89%)
+        val bottomCandidates = lines.filter { line ->
+            val bounds = line.boundingBox
+            if (bounds != null) {
+                val cY = bounds.centerY() * scaleY
+                val cX = bounds.centerX() * scaleX
+                val cYPercent = cY / screenHeight
+                val cXPercent = cX / screenWidth
+                cYPercent in 0.75f..0.90f && cXPercent in 0.25f..0.75f
+            } else false
+        }
+
+        val fallbackLine = bottomCandidates.maxByOrNull { it.boundingBox?.centerY() ?: 0 }
+        if (fallbackLine != null) {
+            val bounds = fallbackLine.boundingBox!!
+            val cX = bounds.centerX() * scaleX
+            val cY = bounds.centerY() * scaleY
+            AutoBuyerLogs.addLog("🎯 [КНОПКА НАЙДЕНА ПО ПОЗИЦИИ В ОКНЕ] '${fallbackLine.text}' в координатах (${cX.toInt()}, ${cY.toInt()})")
+            return Pair(cX, cY)
+        }
+
+        // 3. Exact geometric center of 'Mark all as READ' button from screenshot (X: 50%, Y: 83%)
+        val defaultX = screenWidth * 0.50f
+        val defaultY = screenHeight * 0.83f
+        AutoBuyerLogs.addLog("🎯 [ГЕОМЕТРИЧЕСКИЙ КЛИК] 'Mark all as READ' в (${defaultX.toInt()}, ${defaultY.toInt()})")
+        return Pair(defaultX, defaultY)
+    }
+
     private suspend fun dismissSuccessDialogIfNeeded(
         lines: List<com.google.mlkit.vision.text.Text.Line>,
         scaleX: Float,
@@ -1813,63 +1899,18 @@ class LootBuyerAccessibilityService : AccessibilityService() {
         db: AppDatabase,
         config: AppConfiguration
     ): Boolean {
-        val fullText = lines.joinToString(" ") { it.text.lowercase() }
-        val hasMarketBuyOfferText = 
-            (fullText.contains("market") && fullText.contains("offer")) ||
-            fullText.contains("market buy") || 
-            fullText.contains("buy offer") || 
-            fullText.contains("buyoffer")
+        if (isMailMarketBuyOfferDialog(lines)) {
+            val screenWindowManager = getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
+            val screenMetrics = android.util.DisplayMetrics()
+            @Suppress("DEPRECATION")
+            screenWindowManager.defaultDisplay.getRealMetrics(screenMetrics)
+            val screenWidth = screenMetrics.widthPixels.toFloat()
+            val screenHeight = screenMetrics.heightPixels.toFloat()
 
-        if (hasMarketBuyOfferText) {
-            val confirmLine = lines.firstOrNull { line ->
-                isConfirmButtonText(line.text)
-            }
+            val (clickX, clickY) = findMarkAllAsReadCoordinates(lines, scaleX, scaleY, screenWidth, screenHeight)
 
-            var clickX = -1f
-            var clickY = -1f
-            val bounds = confirmLine?.boundingBox
-            if (bounds != null) {
-                clickX = bounds.centerX() * scaleX
-                clickY = bounds.centerY() * scaleY
-                AutoBuyerLogs.addLog("✅ [УСПЕХ] Обнаружено окно 'Market buy offer'! Кликаем 'Confirm' в координатах ($clickX, $clickY).")
-                clickAt(clickX, clickY)
-            } else {
-                val screenWindowManager = getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
-                val screenMetrics = android.util.DisplayMetrics()
-                @Suppress("DEPRECATION")
-                screenWindowManager.defaultDisplay.getRealMetrics(screenMetrics)
-                val cX = screenMetrics.widthPixels / 2f
-                val cY = screenMetrics.heightPixels * 0.65f
-                
-                // Coordinate-based candidate fallback
-                val candidates = lines.filter { line ->
-                    val b = line.boundingBox
-                    if (b != null) {
-                        val centerX = b.centerX() * scaleX
-                        val centerY = b.centerY() * scaleY
-                        val cXPercent = centerX / screenMetrics.widthPixels
-                        val cYPercent = centerY / screenMetrics.heightPixels
-                        cXPercent in 0.25f..0.75f && cYPercent in 0.58f..0.80f
-                    } else {
-                        false
-                    }
-                }
-                val bestCandidate = candidates.maxByOrNull { line ->
-                    line.boundingBox?.centerY() ?: 0
-                }
-                if (bestCandidate != null) {
-                    val b = bestCandidate.boundingBox!!
-                    clickX = b.centerX() * scaleX
-                    clickY = b.centerY() * scaleY
-                    AutoBuyerLogs.addLog("🎯 Нашли кнопку Confirm по координатам: '${bestCandidate.text}' в (${clickX}, ${clickY})")
-                    clickAt(clickX, clickY)
-                } else {
-                    clickX = cX
-                    clickY = cY
-                    AutoBuyerLogs.addLog("✅ [УСПЕХ] Обнаружено окно 'Market buy offer', но кнопка 'Confirm' не найдена. Кликаем по умолчанию в координатах ($clickX, $clickY).")
-                    clickAt(clickX, clickY)
-                }
-            }
+            AutoBuyerLogs.addLog("✅ [УСПЕХ] Обнаружено окно 'Mail / Market buy offer'! Кликаем 'Mark all as READ' в координатах (${clickX.toInt()}, ${clickY.toInt()}).")
+            clickAt(clickX, clickY)
 
             // Save purchase record to database if not already logged
             try {
@@ -1889,10 +1930,8 @@ class LootBuyerAccessibilityService : AccessibilityService() {
                 AutoBuyerLogs.addLog("⚠️ Ошибка записи покупки в БД: ${e.message}")
             }
 
-            // Set 1-hour cooldown
-            cooldownUntilMillis = System.currentTimeMillis() + 60 * 60 * 1000L
-            val timeStr = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(cooldownUntilMillis))
-            AutoBuyerLogs.addLog("✅ Бот уходит на паузу на 1 час (до $timeStr).")
+            cooldownUntilMillis = 0L
+            AutoBuyerLogs.addLog("✅ Окно закрыто. Готовы к следующим покупкам.")
             return true
         }
         return false
@@ -1953,12 +1992,8 @@ class LootBuyerAccessibilityService : AccessibilityService() {
                 fullText.contains("uzhe kuplen") ||
                 (fullText.contains("has") && fullText.contains("purchased"))
     
-            // 2. Check for "Market buy offer" success dialog
-            val hasMarketBuyOfferText = 
-                (fullText.contains("market") && fullText.contains("offer")) ||
-                fullText.contains("market buy") || 
-                fullText.contains("buy offer") || 
-                fullText.contains("buyoffer")
+            // 2. Check for "Market buy offer" / "Mail" success dialog
+            val isMarketOfferShowing = isMailMarketBuyOfferDialog(lines)
                 
             if (hasLotAlreadyPurchasedText) {
                 var clickX = -1f
@@ -2013,46 +2048,14 @@ class LootBuyerAccessibilityService : AccessibilityService() {
                 }
                 verificationBitmap.recycle()
                 break
-            } else if (hasMarketBuyOfferText) {
-                val confirmLine = lines.firstOrNull { line -> isConfirmButtonText(line.text) }
-                var clickX = -1f
-                var clickY = -1f
-                val bounds = confirmLine?.boundingBox
-                if (bounds != null) {
-                    clickX = bounds.centerX() * scaleX
-                    clickY = bounds.centerY() * scaleY
-                } else {
-                    val candidates = lines.filter { line ->
-                        val b = line.boundingBox
-                        if (b != null) {
-                            val cX = b.centerX() * scaleX
-                            val cY = b.centerY() * scaleY
-                            val cXPercent = cX / screenWidth
-                            val cYPercent = cY / screenHeight
-                            cXPercent in 0.25f..0.75f && cYPercent in 0.58f..0.80f
-                        } else {
-                            false
-                        }
-                    }
-                    val bestCandidate = candidates.maxByOrNull { line ->
-                        line.boundingBox?.centerY() ?: 0
-                    }
-                    if (bestCandidate != null) {
-                        val b = bestCandidate.boundingBox!!
-                        clickX = b.centerX() * scaleX
-                        clickY = b.centerY() * scaleY
-                    } else {
-                        clickX = screenWidth / 2f
-                        clickY = screenHeight * 0.65f
-                    }
-                }
+            } else if (isMarketOfferShowing) {
+                val (clickX, clickY) = findMarkAllAsReadCoordinates(lines, scaleX, scaleY, screenWidth, screenHeight)
     
-                AutoBuyerLogs.addLog("✅ [УСПЕХ] Обнаружено окно 'Market buy offer'! Нажимаем 'Confirm' в координатах ($clickX, $clickY)")
+                AutoBuyerLogs.addLog("✅ [УСПЕХ] Обнаружено окно 'Mail / Market buy offer'! Нажимаем 'Mark all as READ' в координатах (${clickX.toInt()}, ${clickY.toInt()})")
                 clickAt(clickX, clickY)
     
-                cooldownUntilMillis = System.currentTimeMillis() + 60 * 60 * 1000L
-                val timeStr = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(cooldownUntilMillis))
-                AutoBuyerLogs.addLog("✅ Покупка подтверждена! Бот уходит на паузу на 1 час (до $timeStr).")
+                cooldownUntilMillis = 0L
+                AutoBuyerLogs.addLog("✅ Покупка подтверждена! Окно 'Mail' закрыто. Готовы к продолжению работы.")
                 dialogDetectedAndHandled = true
                 verificationBitmap.recycle()
                 break
