@@ -477,6 +477,105 @@ fun DashboardScreen(
                         .testTag("lot_name_input")
                 )
 
+                // Multi-selection Gemstones section
+                val selectedGemsSet = remember(config?.selectedGems) {
+                    (config?.selectedGems ?: "Sapphire,Emerald,Ruby").split(",")
+                        .map { it.trim() }
+                        .filter { it.isNotEmpty() }
+                        .toSet()
+                        .ifEmpty { setOf("Sapphire", "Emerald", "Ruby") }
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFF25252E))
+                        .padding(12.dp)
+                ) {
+                    Text(
+                        text = "🎯 Выбор камней для скупки (мульти-выбор):",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Бот будет циклически переключаться между отмеченными камнями и скупать лоты",
+                        color = Color.LightGray,
+                        fontSize = 11.sp
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    val gemList = listOf(
+                        Triple("Sapphire", "💎 Сапфир", Color(0xFF1E88E5)),
+                        Triple("Emerald", "🟢 Изумруд", Color(0xFF43A047)),
+                        Triple("Ruby", "🔴 Рубин", Color(0xFFE53935))
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        gemList.forEach { (gemId, gemLabel, gemColor) ->
+                            val isChecked = selectedGemsSet.contains(gemId)
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isChecked) gemColor.copy(alpha = 0.35f) else Color(0xFF1A1A22))
+                                    .border(
+                                        width = if (isChecked) 2.dp else 1.dp,
+                                        color = if (isChecked) gemColor else Color.Gray,
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable {
+                                        val newSet = if (isChecked) {
+                                            if (selectedGemsSet.size > 1) selectedGemsSet - gemId else selectedGemsSet
+                                        } else {
+                                            selectedGemsSet + gemId
+                                        }
+                                        val csv = newSet.joinToString(",")
+                                        viewModel.updateSelectedGems(csv)
+                                        if (newSet.isNotEmpty() && !newSet.contains(itemNameInput)) {
+                                            val first = newSet.first()
+                                            val russianName = when (first) {
+                                                "Sapphire" -> "Сапфир"
+                                                "Emerald" -> "Изумруд"
+                                                "Ruby" -> "Рубин"
+                                                else -> first
+                                            }
+                                            itemNameInput = russianName
+                                            saveConfig()
+                                        }
+                                    }
+                                    .padding(vertical = 10.dp, horizontal = 4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    if (isChecked) {
+                                        Icon(
+                                            imageVector = Icons.Default.CheckCircle,
+                                            contentDescription = "Выбрано",
+                                            tint = gemColor,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                    }
+                                    Text(
+                                        text = gemLabel,
+                                        color = if (isChecked) Color.White else Color.Gray,
+                                        fontSize = 12.sp,
+                                        fontWeight = if (isChecked) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Quick Predefined Russian game tabs
                 Column {
                     Text("Quick Predefined Game Tabs:", color = Color.Gray, fontSize = 11.sp)

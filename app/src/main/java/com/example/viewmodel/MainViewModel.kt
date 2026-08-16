@@ -91,6 +91,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun updateSelectedGems(selectedGemsCsv: String) {
+        viewModelScope.launch {
+            val current = dao.getConfiguration() ?: AppConfiguration()
+            dao.saveConfiguration(current.copy(selectedGems = selectedGemsCsv))
+        }
+    }
+
     fun clearPurchaseHistory() {
         viewModelScope.launch {
             purchaseDao.clearAllPurchases()

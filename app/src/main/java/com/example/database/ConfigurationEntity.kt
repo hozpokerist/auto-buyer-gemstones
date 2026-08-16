@@ -21,6 +21,7 @@ data class AppConfiguration(
     val refreshButtonY: Float = 200f,
     
     val autoBuyEnabled: Boolean = false,
+    val selectedGems: String = "Sapphire,Emerald,Ruby", // Comma-separated active gems for multi-purchase
     val tabSwitchIntervalMs: Long = 150L, // Configurable interval in ms for alternating tabs
     val enableActualBuying: Boolean = false, // If true, make actual clicks to purchase. If false, log only.
     val usePriceThreshold: Boolean = true, // If true, filter by price threshold. If false, buy unconditionally.

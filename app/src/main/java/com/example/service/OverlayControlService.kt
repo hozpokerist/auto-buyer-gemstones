@@ -543,7 +543,11 @@ class OverlayControlService : Service() {
             } else {
                 "Coordinate Macro"
             }
-            configText?.text = "Item: ${config.targetItemName} | Threshold: ${config.priceThreshold}\nMode: $scanMode"
+            val activeGemsList = config.selectedGems.split(",").filter { it.isNotBlank() }
+            val gemsSummary = if (activeGemsList.size == 3) "Все камни" else activeGemsList.joinToString("/") { gem ->
+                when (gem.trim()) { "Sapphire" -> "Сап"; "Emerald" -> "Изум"; "Ruby" -> "Руб"; else -> gem }
+            }
+            configText?.text = "Камни: [$gemsSummary] | Лимит: ${config.priceThreshold}\nРежим: $scanMode"
             
             if (config.autoBuyEnabled) {
                 toggleBtn?.text = "PAUSE MONITORING"

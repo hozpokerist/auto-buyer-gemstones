@@ -53,6 +53,9 @@ class LootBuyerAccessibilityService : AccessibilityService() {
     // Session tabs initialization state: tabs must be recognized via OCR before bot starts switching
     @Volatile private var areTabsInitialized: Boolean = false
 
+    // Multi-gem rotation index
+    @Volatile private var multiGemIndex: Int = 0
+
     // Dynamic gemstone switching for Emerald
     @Volatile private var emeraldAlternateTab: String = "Sapphire"
     @Volatile private var emeraldPairSwitchTimeMs: Long = 0L
@@ -494,41 +497,64 @@ class LootBuyerAccessibilityService : AccessibilityService() {
         val screenHeight = metrics.heightPixels.toFloat()
         val density = metrics.density
 
-        // Identify target tab based on the configured item name
-        val targetLower = config.targetItemName.lowercase().trim()
-        val targetCategoryTab = when {
-            targetLower.contains("сапфир") || targetLower.contains("sapphire") || targetLower.contains("sap") || targetLower.contains("сап") -> "Sapphire"
-            targetLower.contains("изумруд") || targetLower.contains("emerald") || targetLower.contains("eme") || targetLower.contains("изм") || targetLower.contains("изум") || targetLower.contains("izumrud") -> "Emerald"
-            targetLower.contains("рубин") || targetLower.contains("ruby") || targetLower.contains("rub") || targetLower.contains("руб") || targetLower.contains("rubin") -> "Ruby"
-            targetLower.contains("руда") || targetLower.contains("ore") -> "Ore"
-            targetLower.contains("медь") || targetLower.contains("copper") -> "Copper"
-            targetLower.contains("серебро") || targetLower.contains("silver") -> "Silver"
-            targetLower.contains("золото") || targetLower.contains("gold") -> "Gold"
-            else -> "Sapphire"
-        }
+        // Identify target tab and active gems
+        val activeGems = config.selectedGems.split(",")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .ifEmpty { listOf("Sapphire", "Emerald", "Ruby") }
 
-        val alternateTab: String = when (targetCategoryTab) {
-            "Sapphire" -> "Emerald" // If buying Sapphire: switch between Sapphire and Emerald
-            "Ruby" -> "Emerald"     // If buying Ruby: switch between Ruby and Emerald
-            "Emerald" -> {
-                // If buying Emerald: randomly switch between Sapphire-Emerald or Emerald-Ruby.
-                // Periodically change switching interval (1 to 1.5 min = 60-90 sec).
-                val now = System.currentTimeMillis()
-                if (now >= emeraldPairSwitchTimeMs || (emeraldAlternateTab != "Sapphire" && emeraldAlternateTab != "Ruby")) {
-                    val nextAlt = if (emeraldAlternateTab == "Sapphire") "Ruby" else if (emeraldAlternateTab == "Ruby") "Sapphire" else if (Math.random() < 0.5) "Sapphire" else "Ruby"
-                    emeraldAlternateTab = nextAlt
-                    val durationSec = (60..90).random()
-                    emeraldPairSwitchTimeMs = now + (durationSec * 1000L)
-                    val pairName = if (nextAlt == "Sapphire") "Сапфир - Изумруд" else "Изумруд - Рубин"
-                    AutoBuyerLogs.addLog("🔄 [СМЕНА ПАРЫ ВКЛАДОК] Поиск Изумруда: переключение на пару '$pairName' на $durationSec сек.")
-                }
-                emeraldAlternateTab
+        val targetLower = config.targetItemName.lowercase().trim()
+        val isExplicitOreCategory = targetLower.contains("руда") || targetLower.contains("ore") ||
+                targetLower.contains("медь") || targetLower.contains("copper") ||
+                targetLower.contains("серебро") || targetLower.contains("silver") ||
+                targetLower.contains("золото") || targetLower.contains("gold")
+
+        val targetCategoryTab: String
+        val alternateTab: String
+
+        if (isExplicitOreCategory) {
+            targetCategoryTab = when {
+                targetLower.contains("руда") || targetLower.contains("ore") -> "Ore"
+                targetLower.contains("медь") || targetLower.contains("copper") -> "Copper"
+                targetLower.contains("серебро") || targetLower.contains("silver") -> "Silver"
+                targetLower.contains("золото") || targetLower.contains("gold") -> "Gold"
+                else -> "Ore"
             }
-            "Ore" -> "Copper"
-            "Copper" -> "Ore"
-            "Silver" -> "Gold"
-            "Gold" -> "Silver"
-            else -> "Emerald"
+            alternateTab = when (targetCategoryTab) {
+                "Ore" -> "Copper"
+                "Copper" -> "Ore"
+                "Silver" -> "Gold"
+                "Gold" -> "Silver"
+                else -> "Copper"
+            }
+        } else {
+            // Multi-gem gemstone rotation
+            val currentGemIndex = (multiGemIndex % activeGems.size).coerceAtLeast(0)
+            targetCategoryTab = activeGems[currentGemIndex]
+
+            if (activeGems.size > 1) {
+                val nextIndex = (currentGemIndex + 1) % activeGems.size
+                alternateTab = activeGems[nextIndex]
+                multiGemIndex = (multiGemIndex + 1) % activeGems.size
+            } else {
+                alternateTab = when (targetCategoryTab) {
+                    "Sapphire" -> "Emerald"
+                    "Ruby" -> "Sapphire"
+                    "Emerald" -> {
+                        val now = System.currentTimeMillis()
+                        if (now >= emeraldPairSwitchTimeMs || (emeraldAlternateTab != "Sapphire" && emeraldAlternateTab != "Ruby")) {
+                            val nextAlt = if (emeraldAlternateTab == "Sapphire") "Ruby" else "Sapphire"
+                            emeraldAlternateTab = nextAlt
+                            val durationSec = (60..90).random()
+                            emeraldPairSwitchTimeMs = now + (durationSec * 1000L)
+                            val pairName = if (nextAlt == "Sapphire") "Сапфир - Изумруд" else "Изумруд - Рубин"
+                            AutoBuyerLogs.addLog("🔄 [СМЕНА ПАРЫ ВКЛАДОК] Поиск Изумруда: переключение на пару '$pairName' на $durationSec сек.")
+                        }
+                        emeraldAlternateTab
+                    }
+                    else -> "Emerald"
+                }
+            }
         }
 
         // STEP 1: INITIALIZATION CHECK
