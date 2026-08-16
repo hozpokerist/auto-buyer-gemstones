@@ -155,11 +155,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateCalibratedCoordinates(
-        oreX: Float, oreY: Float,
-        copperX: Float, copperY: Float,
-        silverX: Float, silverY: Float,
-        goldX: Float, goldY: Float,
-        sapX: Float, sapY: Float,
+        oreX: Float = -1f, oreY: Float = -1f,
+        copperX: Float = -1f, copperY: Float = -1f,
+        silverX: Float = -1f, silverY: Float = -1f,
+        goldX: Float = -1f, goldY: Float = -1f,
+        sapX: Float = -1f, sapY: Float = -1f,
+        emeraldX: Float = -1f, emeraldY: Float = -1f,
+        rubyX: Float = -1f, rubyY: Float = -1f,
         confirmX: Float = -1f,
         confirmY: Float = -1f
     ) {
@@ -176,6 +178,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 calibratedGoldY = goldY,
                 calibratedSapX = sapX,
                 calibratedSapY = sapY,
+                calibratedEmeraldX = emeraldX,
+                calibratedEmeraldY = emeraldY,
+                calibratedRubyX = rubyX,
+                calibratedRubyY = rubyY,
                 calibratedConfirmX = confirmX,
                 calibratedConfirmY = confirmY
             ))

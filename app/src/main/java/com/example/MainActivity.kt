@@ -487,7 +487,7 @@ fun DashboardScreen(
                             .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        val presetCategories = listOf("Руда", "Медь", "Серебро", "Золото", "Сапфир")
+                        val presetCategories = listOf("Изумруд", "Сапфир", "Рубин", "Золото", "Серебро", "Медь", "Руда")
                         presetCategories.forEach { cat ->
                             val isSelected = itemNameInput.equals(cat, ignoreCase = true)
                             Box(
@@ -650,6 +650,8 @@ fun DashboardScreen(
                         Text("• Silver: (${config!!.calibratedSilverX.toInt()}, ${config!!.calibratedSilverY.toInt()})", color = Color.LightGray, fontSize = 11.sp)
                         Text("• Gold: (${config!!.calibratedGoldX.toInt()}, ${config!!.calibratedGoldY.toInt()})", color = Color.LightGray, fontSize = 11.sp)
                         Text("• Sap: (${config!!.calibratedSapX.toInt()}, ${config!!.calibratedSapY.toInt()})", color = Color.LightGray, fontSize = 11.sp)
+                        Text("• Emerald: (${config!!.calibratedEmeraldX.toInt()}, ${config!!.calibratedEmeraldY.toInt()})", color = Color.LightGray, fontSize = 11.sp)
+                        Text("• Ruby: (${config!!.calibratedRubyX.toInt()}, ${config!!.calibratedRubyY.toInt()})", color = Color.LightGray, fontSize = 11.sp)
                         if (config!!.calibratedConfirmX != -1f) {
                             Text("• Confirm: (${config!!.calibratedConfirmX.toInt()}, ${config!!.calibratedConfirmY.toInt()})", color = Color.LightGray, fontSize = 11.sp)
                         }

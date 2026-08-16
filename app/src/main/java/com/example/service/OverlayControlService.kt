@@ -608,25 +608,38 @@ class OverlayControlService : Service() {
         lastTapTime = 0L // Reset touch debounce timer
         
         val config = currentConfig ?: AppConfiguration()
-        val targetItemName = config.targetItemName
+        val targetLower = config.targetItemName.lowercase().trim()
         
         val targetCategoryTab = when {
-            targetItemName.lowercase().contains("руда") || targetItemName.lowercase().contains("ore") -> "Ore"
-            targetItemName.lowercase().contains("медь") || targetItemName.lowercase().contains("copper") -> "Copper"
-            targetItemName.lowercase().contains("серебро") || targetItemName.lowercase().contains("silver") -> "Silver"
-            targetItemName.lowercase().contains("золото") || targetItemName.lowercase().contains("gold") -> "Gold"
-            targetItemName.lowercase().contains("сапфир") || targetItemName.lowercase().contains("sapphire") || targetItemName.lowercase().contains("sap") -> "Sap"
-            else -> "Ore"
+            targetLower.contains("сапфир") || targetLower.contains("sapphire") || targetLower.contains("sap") || targetLower.contains("сап") -> "Sap"
+            targetLower.contains("изумруд") || targetLower.contains("emerald") || targetLower.contains("eme") || targetLower.contains("изм") || targetLower.contains("изум") || targetLower.contains("izumrud") -> "Emerald"
+            targetLower.contains("рубин") || targetLower.contains("ruby") || targetLower.contains("rub") || targetLower.contains("руб") || targetLower.contains("rubin") -> "Ruby"
+            targetLower.contains("руда") || targetLower.contains("ore") -> "Ore"
+            targetLower.contains("медь") || targetLower.contains("copper") -> "Copper"
+            targetLower.contains("серебро") || targetLower.contains("silver") -> "Silver"
+            targetLower.contains("золото") || targetLower.contains("gold") -> "Gold"
+            else -> "Emerald"
         }
-        val alternateTab = if (targetCategoryTab.equals("Ore", ignoreCase = true)) "Copper" else "Ore"
+        val alternateTab = when (targetCategoryTab) {
+            "Sap" -> "Emerald"
+            "Emerald" -> "Sap"
+            "Ruby" -> "Emerald"
+            "Ore" -> "Copper"
+            "Copper" -> "Ore"
+            "Silver" -> "Gold"
+            "Gold" -> "Silver"
+            else -> "Emerald"
+        }
 
         fun getTabNameRussian(tab: String): String = when (tab) {
+            "Sap" -> "Сапфир (Sapphire)"
+            "Emerald" -> "Изумруд (Emerald)"
+            "Ruby" -> "Рубин (Ruby)"
             "Ore" -> "Руда (Ore)"
             "Copper" -> "Медь (Copper)"
             "Silver" -> "Серебро (Silver)"
             "Gold" -> "Золото (Gold)"
-            "Sap" -> "Сапфир (Sapphire)"
-            else -> "Руда (Ore)"
+            else -> "Изумруд (Emerald)"
         }
 
         val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -759,25 +772,38 @@ class OverlayControlService : Service() {
         }
 
         val config = currentConfig ?: AppConfiguration()
-        val targetItemName = config.targetItemName
+        val targetLower = config.targetItemName.lowercase().trim()
         
         val targetCategoryTab = when {
-            targetItemName.lowercase().contains("руда") || targetItemName.lowercase().contains("ore") -> "Ore"
-            targetItemName.lowercase().contains("медь") || targetItemName.lowercase().contains("copper") -> "Copper"
-            targetItemName.lowercase().contains("серебро") || targetItemName.lowercase().contains("silver") -> "Silver"
-            targetItemName.lowercase().contains("золото") || targetItemName.lowercase().contains("gold") -> "Gold"
-            targetItemName.lowercase().contains("сапфир") || targetItemName.lowercase().contains("sapphire") || targetItemName.lowercase().contains("sap") -> "Sap"
-            else -> "Ore"
+            targetLower.contains("сапфир") || targetLower.contains("sapphire") || targetLower.contains("sap") || targetLower.contains("сап") -> "Sap"
+            targetLower.contains("изумруд") || targetLower.contains("emerald") || targetLower.contains("eme") || targetLower.contains("изм") || targetLower.contains("изум") || targetLower.contains("izumrud") -> "Emerald"
+            targetLower.contains("рубин") || targetLower.contains("ruby") || targetLower.contains("rub") || targetLower.contains("руб") || targetLower.contains("rubin") -> "Ruby"
+            targetLower.contains("руда") || targetLower.contains("ore") -> "Ore"
+            targetLower.contains("медь") || targetLower.contains("copper") -> "Copper"
+            targetLower.contains("серебро") || targetLower.contains("silver") -> "Silver"
+            targetLower.contains("золото") || targetLower.contains("gold") -> "Gold"
+            else -> "Emerald"
         }
-        val alternateTab = if (targetCategoryTab.equals("Ore", ignoreCase = true)) "Copper" else "Ore"
+        val alternateTab = when (targetCategoryTab) {
+            "Sap" -> "Emerald"
+            "Emerald" -> "Sap"
+            "Ruby" -> "Emerald"
+            "Ore" -> "Copper"
+            "Copper" -> "Ore"
+            "Silver" -> "Gold"
+            "Gold" -> "Silver"
+            else -> "Emerald"
+        }
 
         fun getTabNameRussian(tab: String): String = when (tab) {
+            "Sap" -> "Сапфир (Sapphire)"
+            "Emerald" -> "Изумруд (Emerald)"
+            "Ruby" -> "Рубин (Ruby)"
             "Ore" -> "Руда (Ore)"
             "Copper" -> "Медь (Copper)"
             "Silver" -> "Серебро (Silver)"
             "Gold" -> "Золото (Gold)"
-            "Sap" -> "Сапфир (Sapphire)"
-            else -> "Руда (Ore)"
+            else -> "Изумруд (Emerald)"
         }
 
         when (calibrationStep) {
@@ -810,6 +836,8 @@ class OverlayControlService : Service() {
                         "Silver" -> updated.copy(calibratedSilverX = tempTargetX, calibratedSilverY = tempTargetY)
                         "Gold" -> updated.copy(calibratedGoldX = tempTargetX, calibratedGoldY = tempTargetY)
                         "Sap" -> updated.copy(calibratedSapX = tempTargetX, calibratedSapY = tempTargetY)
+                        "Emerald" -> updated.copy(calibratedEmeraldX = tempTargetX, calibratedEmeraldY = tempTargetY)
+                        "Ruby" -> updated.copy(calibratedRubyX = tempTargetX, calibratedRubyY = tempTargetY)
                         else -> updated
                     }
                     
@@ -820,6 +848,8 @@ class OverlayControlService : Service() {
                         "Silver" -> updated.copy(calibratedSilverX = tempAlternateX, calibratedSilverY = tempAlternateY)
                         "Gold" -> updated.copy(calibratedGoldX = tempAlternateX, calibratedGoldY = tempAlternateY)
                         "Sap" -> updated.copy(calibratedSapX = tempAlternateX, calibratedSapY = tempAlternateY)
+                        "Emerald" -> updated.copy(calibratedEmeraldX = tempAlternateX, calibratedEmeraldY = tempAlternateY)
+                        "Ruby" -> updated.copy(calibratedRubyX = tempAlternateX, calibratedRubyY = tempAlternateY)
                         else -> updated
                     }
                     

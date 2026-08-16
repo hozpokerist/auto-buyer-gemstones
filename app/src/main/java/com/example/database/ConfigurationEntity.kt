@@ -6,7 +6,7 @@ import androidx.room.PrimaryKey
 @Entity(tableName = "app_configuration")
 data class AppConfiguration(
     @PrimaryKey val id: Int = 1,
-    val targetItemName: String = "Loot",
+    val targetItemName: String = "Изумруд",
     val priceThreshold: Double = 100.0,
     val isLessThanOperator: Boolean = true, // True: buy if price < threshold. False: buy if price > threshold.
     val scanIntervalMs: Long = 350,
@@ -35,6 +35,10 @@ data class AppConfiguration(
     val calibratedGoldY: Float = -1f,
     val calibratedSapX: Float = -1f,
     val calibratedSapY: Float = -1f,
+    val calibratedEmeraldX: Float = -1f,
+    val calibratedEmeraldY: Float = -1f,
+    val calibratedRubyX: Float = -1f,
+    val calibratedRubyY: Float = -1f,
     val calibratedConfirmX: Float = -1f,
     val calibratedConfirmY: Float = -1f,
     val verboseOcrLogging: Boolean = false,
