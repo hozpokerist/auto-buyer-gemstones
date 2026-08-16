@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Auto-Buyer Clicker"
+rootProject.name = "auto-buyer-gemstones"
 
 include(":app")

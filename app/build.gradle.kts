@@ -14,6 +14,10 @@ android {
   namespace = "com.example"
   compileSdk = 35
 
+  base {
+    archivesName.set("auto-buyer-gemstones")
+  }
+
   defaultConfig {
     applicationId = "com.example"
     minSdk = 24
