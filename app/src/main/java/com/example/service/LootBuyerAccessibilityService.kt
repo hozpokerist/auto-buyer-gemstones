@@ -113,6 +113,7 @@ class LootBuyerAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        OpenCvVisionEngine.init()
         serviceScope.launch {
             AutoBuyerLogs.addLog("Accessibility Service Connected successfully")
         }
@@ -432,7 +433,7 @@ class LootBuyerAccessibilityService : AccessibilityService() {
             "Silver" -> if (config.calibratedSilverX != -1f && config.calibratedSilverY != -1f) return true
             "Gold" -> if (config.calibratedGoldX != -1f && config.calibratedGoldY != -1f) return true
         }
-        // Cached coordinates from memory
+        // Cached coordinates from memory (validated)
         when (tabName) {
             "Sapphire", "Sap" -> return cachedTabSapX != null && cachedTabSapY != null
             "Emerald" -> return cachedTabEmeraldX != null && cachedTabEmeraldY != null
@@ -445,7 +446,7 @@ class LootBuyerAccessibilityService : AccessibilityService() {
         return false
     }
 
-    private fun getTabCoordinatesCached(tabName: String, config: AppConfiguration, screenWidth: Float, screenHeight: Float): Pair<Float, Float> {
+    private fun getTabCoordinatesCached(tabName: String, config: AppConfiguration, screenWidth: Float, screenHeight: Float): Pair<Float, Float>? {
         // Calibrated coordinates from DB
         when (tabName) {
             "Sapphire", "Sap" -> if (config.calibratedSapX != -1f && config.calibratedSapY != -1f) return Pair(config.calibratedSapX, config.calibratedSapY)
@@ -456,7 +457,7 @@ class LootBuyerAccessibilityService : AccessibilityService() {
             "Silver" -> if (config.calibratedSilverX != -1f && config.calibratedSilverY != -1f) return Pair(config.calibratedSilverX, config.calibratedSilverY)
             "Gold" -> if (config.calibratedGoldX != -1f && config.calibratedGoldY != -1f) return Pair(config.calibratedGoldX, config.calibratedGoldY)
         }
-        // Cached coordinates from memory
+        // Exact OCR-recognized coordinates saved in session
         when (tabName) {
             "Sapphire", "Sap" -> if (cachedTabSapX != null && cachedTabSapY != null) return Pair(cachedTabSapX!!, cachedTabSapY!!)
             "Emerald" -> if (cachedTabEmeraldX != null && cachedTabEmeraldY != null) return Pair(cachedTabEmeraldX!!, cachedTabEmeraldY!!)
@@ -467,19 +468,67 @@ class LootBuyerAccessibilityService : AccessibilityService() {
             "Gold" -> if (cachedTabGoldX != null && cachedTabGoldY != null) return Pair(cachedTabGoldX!!, cachedTabGoldY!!)
         }
         
-        // Final fallback default calculations
-        val tabY = screenHeight * 0.435f
-        val tabX = when (tabName) {
-            "Gold" -> screenWidth * 0.125f
-            "Sapphire", "Sap" -> screenWidth * 0.375f
-            "Emerald" -> screenWidth * 0.625f
-            "Ruby" -> screenWidth * 0.875f
-            "Ore" -> screenWidth * 0.06f
-            "Copper" -> screenWidth * 0.28f
-            "Silver" -> screenWidth * 0.50f
-            else -> screenWidth * 0.625f
+        return null
+    }
+
+    /**
+     * Scans the screen image with ML Kit OCR to find exact bounding boxes and centers for market tabs.
+     */
+    private fun scanTabsFromOcrResults(
+        textBlocks: List<com.google.mlkit.vision.text.Text.TextBlock>,
+        scaleX: Float,
+        scaleY: Float,
+        screenHeight: Float,
+        screenWidth: Float,
+        density: Float
+    ) {
+        fun checkAndAssignTab(rawText: String, bounds: android.graphics.Rect?) {
+            if (bounds == null) return
+            val text = rawText.lowercase().trim()
+            val tX = bounds.centerX() * scaleX
+            val tY = bounds.centerY() * scaleY
+            val tYPercent = tY / screenHeight
+
+            // Market category tabs are strictly located in the horizontal strip (32%..52% of screen height)
+            if (tYPercent !in 0.32f..0.52f) {
+                return
+            }
+
+            if (text.contains("eme") || text.contains("изм") || text.contains("изум") ||
+                text.contains("emerald") || text.contains("izum") || text.contains("emr")) {
+                cachedTabEmeraldX = tX
+                cachedTabEmeraldY = tY
+            } else if (text.contains("rub") || text.contains("руб") || text.contains("рубин") ||
+                text.contains("ruby") || text.contains("rubin") || text.contains("pyб")) {
+                cachedTabRubyX = tX
+                cachedTabRubyY = tY
+            } else if (text.contains("sap") || text.contains("сап") || text.contains("sapphire") ||
+                text.contains("сапфир") || text.contains("can")) {
+                cachedTabSapX = tX
+                cachedTabSapY = tY
+            } else if (text.contains("ore") || text.contains("руда") || text.contains("pyдa")) {
+                cachedTabOreX = tX
+                cachedTabOreY = tY
+            } else if (text.contains("copper") || text.contains("медь") || text.contains("meдь")) {
+                cachedTabCopperX = tX
+                cachedTabCopperY = tY
+            } else if (text.contains("silver") || text.contains("серебро") || text.contains("cepeбpo")) {
+                cachedTabSilverX = tX
+                cachedTabSilverY = tY
+            } else if (text.contains("gold") || text.contains("золот") || text.contains("3олот")) {
+                cachedTabGoldX = tX
+                cachedTabGoldY = tY
+            }
         }
-        return Pair(tabX, tabY)
+
+        for (block in textBlocks) {
+            for (line in block.lines) {
+                checkAndAssignTab(line.text, line.boundingBox)
+                for (element in line.elements) {
+                    checkAndAssignTab(element.text, element.boundingBox)
+                }
+            }
+        }
     }
 
     /**
@@ -501,174 +550,101 @@ class LootBuyerAccessibilityService : AccessibilityService() {
         val activeGems = config.selectedGems.split(",")
             .map { it.trim() }
             .filter { it.isNotEmpty() }
-            .ifEmpty { listOf("Sapphire", "Emerald", "Ruby") }
+            .ifEmpty { listOf("Emerald", "Ruby") }
 
-        val targetLower = config.targetItemName.lowercase().trim()
-        val isExplicitOreCategory = targetLower.contains("руда") || targetLower.contains("ore") ||
-                targetLower.contains("медь") || targetLower.contains("copper") ||
-                targetLower.contains("серебро") || targetLower.contains("silver") ||
-                targetLower.contains("золото") || targetLower.contains("gold")
-
-        val targetCategoryTab: String
-        val alternateTab: String
-
-        if (isExplicitOreCategory) {
-            targetCategoryTab = when {
-                targetLower.contains("руда") || targetLower.contains("ore") -> "Ore"
-                targetLower.contains("медь") || targetLower.contains("copper") -> "Copper"
-                targetLower.contains("серебро") || targetLower.contains("silver") -> "Silver"
-                targetLower.contains("золото") || targetLower.contains("gold") -> "Gold"
-                else -> "Ore"
-            }
-            alternateTab = when (targetCategoryTab) {
-                "Ore" -> "Copper"
-                "Copper" -> "Ore"
-                "Silver" -> "Gold"
-                "Gold" -> "Silver"
-                else -> "Copper"
-            }
+        // Multi-gem rotation between selected gems (e.g. Ruby and Emerald)
+        val currentGemIndex = (multiGemIndex % activeGems.size).coerceAtLeast(0)
+        val targetCategoryTab = activeGems[currentGemIndex]
+        val alternateTab = if (activeGems.size > 1) {
+            val nextIndex = (currentGemIndex + 1) % activeGems.size
+            activeGems[nextIndex]
         } else {
-            // Multi-gem gemstone rotation
-            val currentGemIndex = (multiGemIndex % activeGems.size).coerceAtLeast(0)
-            targetCategoryTab = activeGems[currentGemIndex]
-
-            if (activeGems.size > 1) {
-                val nextIndex = (currentGemIndex + 1) % activeGems.size
-                alternateTab = activeGems[nextIndex]
-                multiGemIndex = (multiGemIndex + 1) % activeGems.size
-            } else {
-                alternateTab = when (targetCategoryTab) {
-                    "Sapphire" -> "Emerald"
-                    "Ruby" -> "Sapphire"
-                    "Emerald" -> {
-                        val now = System.currentTimeMillis()
-                        if (now >= emeraldPairSwitchTimeMs || (emeraldAlternateTab != "Sapphire" && emeraldAlternateTab != "Ruby")) {
-                            val nextAlt = if (emeraldAlternateTab == "Sapphire") "Ruby" else "Sapphire"
-                            emeraldAlternateTab = nextAlt
-                            val durationSec = (60..90).random()
-                            emeraldPairSwitchTimeMs = now + (durationSec * 1000L)
-                            val pairName = if (nextAlt == "Sapphire") "Сапфир - Изумруд" else "Изумруд - Рубин"
-                            AutoBuyerLogs.addLog("🔄 [СМЕНА ПАРЫ ВКЛАДОК] Поиск Изумруда: переключение на пару '$pairName' на $durationSec сек.")
-                        }
-                        emeraldAlternateTab
-                    }
-                    else -> "Emerald"
-                }
+            when (targetCategoryTab) {
+                "Emerald" -> "Ruby"
+                "Ruby" -> "Emerald"
+                else -> "Emerald"
             }
         }
+        if (activeGems.size > 1) {
+            multiGemIndex = (multiGemIndex + 1) % activeGems.size
+        }
 
-        // STEP 1: INITIALIZATION CHECK
-        // If tabs are not yet recognized and cached for this session, we MUST discover them on screen first!
-        if (!areTabsInitialized) {
+        // STEP 1: VERIFY OR DISCOVER TABS VIA OPENCV COMPUTER VISION & OCR
+        var altCoords = getTabCoordinatesCached(alternateTab, config, screenWidth, screenHeight)
+        var targetCoords = getTabCoordinatesCached(targetCategoryTab, config, screenWidth, screenHeight)
+
+        if (altCoords == null || targetCoords == null) {
             val initialBitmap = MediaProjectionHelper.getLatestScreenshot()
             if (initialBitmap == null) {
-                AutoBuyerLogs.addLog("🔍 [ИНИЦИАЛИЗАЦИЯ] Ожидание захвата экрана для поиска вкладок...")
+                AutoBuyerLogs.addLog("🔍 [ОЖИДАНИЕ ЭКРАНА] Ожидание скриншота игры для компьютерного зрения...")
                 return@withContext
             }
 
-            val scaleX = screenWidth / initialBitmap.width
-            val scaleY = screenHeight / initialBitmap.height
+            val initScaleX = screenWidth / initialBitmap.width
+            val initScaleY = screenHeight / initialBitmap.height
 
-            val initialInputImage = InputImage.fromBitmap(initialBitmap, 0)
-            val initialResult = try {
-                Tasks.await(recognizer.process(initialInputImage))
+            // 1. Primary: OpenCV HSV chromatic & contour vision engine
+            try {
+                val visionTabs = OpenCvVisionEngine.findTabPositionsByVision(initialBitmap, screenWidth, screenHeight)
+                visionTabs["Emerald"]?.let { (x, y) ->
+                    cachedTabEmeraldX = x
+                    cachedTabEmeraldY = y
+                }
+                visionTabs["Ruby"]?.let { (x, y) ->
+                    cachedTabRubyX = x
+                    cachedTabRubyY = y
+                }
+                visionTabs["Sapphire"]?.let { (x, y) ->
+                    cachedTabSapX = x
+                    cachedTabSapY = y
+                }
             } catch (e: Exception) {
-                initialBitmap.recycle()
-                AutoBuyerLogs.addLog("⚠️ [ИНИЦИАЛИЗАЦИЯ] Ошибка распознавания: ${e.message}")
-                return@withContext
+                AutoBuyerLogs.addLog("⚠️ [OpenCV] Ошибка поиска вкладок: ${e.message}")
             }
 
-            val allLines = initialResult.textBlocks.flatMap { it.lines }
-            if (allLines.isEmpty()) {
-                initialBitmap.recycle()
-                AutoBuyerLogs.addLog("⚠️ [ИНИЦИАЛИЗАЦИЯ] Экран пуст. Ожидаем отрисовки рынка...")
-                return@withContext
-            }
-
-            val filteredLines = allLines.filter { line ->
-                val bounds = line.boundingBox
-                val screenBounds = bounds?.let {
-                    Rect(
-                        (it.left * scaleX).toInt(),
-                        (it.top * scaleY).toInt(),
-                        (it.right * scaleX).toInt(),
-                        (it.bottom * scaleY).toInt()
+            // 2. Secondary: Text OCR analysis if OpenCV didn't find all selected tabs
+            if (getTabCoordinatesCached(alternateTab, config, screenWidth, screenHeight) == null ||
+                getTabCoordinatesCached(targetCategoryTab, config, screenWidth, screenHeight) == null) {
+                try {
+                    val initialInputImage = InputImage.fromBitmap(initialBitmap, 0)
+                    val initialResult = Tasks.await(recognizer.process(initialInputImage))
+                    
+                    scanTabsFromOcrResults(
+                        textBlocks = initialResult.textBlocks,
+                        scaleX = initScaleX,
+                        scaleY = initScaleY,
+                        screenHeight = screenHeight,
+                        screenWidth = screenWidth,
+                        density = density
                     )
+                } catch (e: Exception) {
+                    // Ignore OCR errors if OpenCV already succeeded
                 }
-                !isInsideOverlay(screenBounds, screenWidth, screenHeight, density) && !isLogOrOverlayText(line.text)
-            }
-
-            // Look for Sapphire, Emerald, and Ruby
-            for (line in filteredLines) {
-                val text = line.text.lowercase().trim()
-                val bounds = line.boundingBox ?: continue
-                val tX = bounds.centerX() * scaleX
-                val tY = bounds.centerY() * scaleY
-
-                if (text.contains("sap") || text.contains("сап") || text.contains("sapphire")) {
-                    cachedTabSapX = tX
-                    cachedTabSapY = tY
-                }
-                if (text.contains("eme") || text.contains("изм") || text.contains("изум") || text.contains("emerald") || text.contains("izumrud")) {
-                    cachedTabEmeraldX = tX
-                    cachedTabEmeraldY = tY
-                }
-                if (text.contains("rub") || text.contains("руб") || text.contains("рубин") || text.contains("ruby") || text.contains("rubin")) {
-                    cachedTabRubyX = tX
-                    cachedTabRubyY = tY
-                }
-                if (text.contains("gold") || text.contains("золот")) {
-                    cachedTabGoldX = tX
-                    cachedTabGoldY = tY
-                }
-            }
-
-            // Verify if required tabs are found
-            val hasSap = cachedTabSapX != null && cachedTabSapY != null
-            val hasEmerald = cachedTabEmeraldX != null && cachedTabEmeraldY != null
-            val hasRuby = cachedTabRubyX != null && cachedTabRubyY != null
-
-            if (hasSap && hasEmerald && hasRuby) {
-                areTabsInitialized = true
-                AutoBuyerLogs.addLog("✅ [ИНИЦИАЛИЗАЦИЯ УСПЕШНА] Все 3 вкладки найдены и зафиксированы!")
-                AutoBuyerLogs.addLog("📌 Сапфир: (${cachedTabSapX!!.toInt()}, ${cachedTabSapY!!.toInt()}) | Изумруд: (${cachedTabEmeraldX!!.toInt()}, ${cachedTabEmeraldY!!.toInt()}) | Рубин: (${cachedTabRubyX!!.toInt()}, ${cachedTabRubyY!!.toInt()})")
-                AutoBuyerLogs.addLog("🚀 Позиции зафиксированы до перезапуска бота. Запуск быстрого цикла поиска!")
-            } else {
-                // Not all tabs found! Stop / hold and report what is visible
-                val visibleTexts = filteredLines
-                    .map { it.text.trim() }
-                    .filter { it.length in 2..35 && !it.startsWith("[") }
-                    .distinct()
-                    .take(8)
-                    .joinToString(", ")
-
-                val missingList = mutableListOf<String>()
-                if (!hasSap) missingList.add("Сапфир (Sapphire)")
-                if (!hasEmerald) missingList.add("Изумруд (Emerald)")
-                if (!hasRuby) missingList.add("Рубин (Ruby)")
-
-                val missingStr = missingList.joinToString(", ")
-                AutoBuyerLogs.addLog("⛔ [ОСТАНОВКА] Не найдены нужные вкладки: $missingStr. Бот не запускается.")
-                AutoBuyerLogs.addLog("👀 На экране сейчас видно: [$visibleTexts]")
-                initialBitmap.recycle()
-                return@withContext
             }
             initialBitmap.recycle()
+
+            altCoords = getTabCoordinatesCached(alternateTab, config, screenWidth, screenHeight)
+            targetCoords = getTabCoordinatesCached(targetCategoryTab, config, screenWidth, screenHeight)
+
+            if (altCoords == null || targetCoords == null) {
+                val missingName = if (targetCoords == null) getTabDisplayName(targetCategoryTab) else getTabDisplayName(alternateTab)
+                AutoBuyerLogs.addLog("🔍 [ПОИСК ВКЛАДОК OPENCV] Сканирование экрана... Вкладка '$missingName' еще не найдена. Убедитесь, что открыт экран Рынка (Market) в игре.")
+                return@withContext
+            } else {
+                AutoBuyerLogs.addLog("🎯 [ВКЛАДКИ УСПЕШНО РАСПОЗНАНЫ И ЗАФИКСИРОВАНЫ OPENCV]")
+                AutoBuyerLogs.addLog("📍 '${getTabDisplayName(targetCategoryTab)}': (X: ${targetCoords.first.toInt()}, Y: ${targetCoords.second.toInt()})")
+                AutoBuyerLogs.addLog("📍 '${getTabDisplayName(alternateTab)}': (X: ${altCoords.first.toInt()}, Y: ${altCoords.second.toInt()})")
+                AutoBuyerLogs.addLog("🚀 Координаты зафиксированы! Запуск мгновенного переключения и анализа лотов.")
+            }
         }
 
-        // STEP 2: FAST TAB SWITCHING USING INITIALIZED OCR COORDINATES
-        var scaleX = 1f
-        var scaleY = 1f
-
-        val altCoords = getTabCoordinatesCached(alternateTab, config, screenWidth, screenHeight)
-        val targetCoords = getTabCoordinatesCached(targetCategoryTab, config, screenWidth, screenHeight)
-
-        AutoBuyerLogs.addLog("⚡ [ПЕРЕКЛЮЧЕНИЕ] Смена на '${getTabDisplayName(alternateTab)}' в (${altCoords.first.toInt()}, ${altCoords.second.toInt()})")
+        // STEP 2: SWITCH STRICTLY BETWEEN THE RECOGNIZED GEMS
+        AutoBuyerLogs.addLog("⚡ [ПЕРЕКЛЮЧЕНИЕ] Переход на '${getTabDisplayName(alternateTab)}' -> (${altCoords.first.toInt()}, ${altCoords.second.toInt()})")
         clickAtWithRandomization(altCoords.first, altCoords.second, config)
 
         delay(getTabSwitchDelay(config))
 
-        AutoBuyerLogs.addLog("⚡ [ПЕРЕКЛЮЧЕНИЕ] Возврат на '${getTabDisplayName(targetCategoryTab)}' в (${targetCoords.first.toInt()}, ${targetCoords.second.toInt()})")
+        AutoBuyerLogs.addLog("⚡ [ПЕРЕКЛЮЧЕНИЕ] Возврат на '${getTabDisplayName(targetCategoryTab)}' -> (${targetCoords.first.toInt()}, ${targetCoords.second.toInt()})")
         clickAtWithRandomization(targetCoords.first, targetCoords.second, config)
 
         delay(getTabSwitchDelay(config))
@@ -680,14 +656,18 @@ class LootBuyerAccessibilityService : AccessibilityService() {
             return@withContext
         }
 
-        scaleX = screenWidth / freshBitmap.width
-        scaleY = screenHeight / freshBitmap.height
+        val scaleX = screenWidth / freshBitmap.width
+        val scaleY = screenHeight / freshBitmap.height
 
         try {
             val freshInputImage = InputImage.fromBitmap(freshBitmap, 0)
             val freshResult = Tasks.await(recognizer.process(freshInputImage))
             val freshLines = freshResult.textBlocks.flatMap { it.lines }
             val db = AppDatabase.getDatabase(this@LootBuyerAccessibilityService)
+            if (dismissSellOrUnwantedModalIfNeeded(freshLines, scaleX, scaleY, screenWidth, screenHeight)) {
+                freshBitmap.recycle()
+                return@withContext
+            }
             if (handleTryThroughDialogIfNeeded(freshLines, scaleX, scaleY, config)) {
                 freshBitmap.recycle()
                 return@withContext
@@ -714,44 +694,15 @@ class LootBuyerAccessibilityService : AccessibilityService() {
                 !isInsideOverlay(screenBounds, screenWidth, screenHeight, density) && !isLogOrOverlayText(line.text)
             }
 
-            // Populate/Refresh the cache in every scan to keep it accurate
-            for (line in freshFilteredLines) {
-                val text = line.text.lowercase()
-                val bounds = line.boundingBox ?: continue
-                val tX = bounds.centerX() * scaleX
-                val tY = bounds.centerY() * scaleY
-
-                when {
-                    text.contains("sap") || text.contains("сап") || text.contains("сапфир") || text.contains("sapphire") -> {
-                        cachedTabSapX = tX
-                        cachedTabSapY = tY
-                    }
-                    text.contains("eme") || text.contains("изум") || text.contains("изм") || text.contains("emerald") || text.contains("izumrud") -> {
-                        cachedTabEmeraldX = tX
-                        cachedTabEmeraldY = tY
-                    }
-                    text.contains("rub") || text.contains("руб") || text.contains("рубин") || text.contains("ruby") || text.contains("rubin") -> {
-                        cachedTabRubyX = tX
-                        cachedTabRubyY = tY
-                    }
-                    text.contains("ore") || text.contains("руда") -> {
-                        cachedTabOreX = tX
-                        cachedTabOreY = tY
-                    }
-                    text.contains("copper") || text.contains("медь") -> {
-                        cachedTabCopperX = tX
-                        cachedTabCopperY = tY
-                    }
-                    text.contains("silver") || text.contains("серебро") -> {
-                        cachedTabSilverX = tX
-                        cachedTabSilverY = tY
-                    }
-                    text.contains("gold") || text.contains("золото") -> {
-                        cachedTabGoldX = tX
-                        cachedTabGoldY = tY
-                    }
-                }
-            }
+            // Populate/Refresh the cache in every scan using OCR word and line analysis
+            scanTabsFromOcrResults(
+                textBlocks = freshResult.textBlocks,
+                scaleX = scaleX,
+                scaleY = scaleY,
+                screenHeight = screenHeight,
+                screenWidth = screenWidth,
+                density = density
+            )
 
             if (config.verboseOcrLogging) {
                 AutoBuyerLogs.addLog("=== [OCR: РАСПОЗНАННЫЕ СТРОКИ] ===")
@@ -760,15 +711,28 @@ class LootBuyerAccessibilityService : AccessibilityService() {
                 }
             }
 
-            // Parse and Group listings from the fresh target tab screen
-            val listingsYThreshold = freshBitmap.height * 0.38f
+            // Parse and Group listings strictly from the market items area (51% to 88% of screen height)
+            // Anything above 50% contains headers, balance, Sell/Buy buttons, filters, tabs, and "Showed: 1-1"
+            val listingsTopLimit = freshBitmap.height * 0.50f
+            val listingsBottomLimit = freshBitmap.height * 0.88f
+            
             val listingLines = freshFilteredLines.filter { line ->
-                val top = line.boundingBox?.top ?: 0
-                top > listingsYThreshold && line.text.any { it.isDigit() }
+                val bounds = line.boundingBox ?: return@filter false
+                val centerY = bounds.centerY().toFloat()
+                val lineText = line.text.lowercase().trim()
+                
+                // Exclude headers, tabs, system labels
+                val isHeaderLabel = lineText.contains("showed") || lineText.contains("from") ||
+                        lineText.contains("price") || lineText.contains("resource") ||
+                        lineText.contains("sell") || lineText.contains("buy") ||
+                        lineText.contains("token") || lineText.contains("market")
+                
+                centerY in listingsTopLimit..listingsBottomLimit && !isHeaderLabel &&
+                        line.text.any { it.isDigit() || it in listOf('o', 'O', 'I', 'l', 's', 'S', 'B') }
             }
 
-            // Group lines into rows by vertical alignment (within 50 pixels)
-            val tolerance = 50f
+            // Group lines into rows by vertical alignment (within 65 pixels)
+            val tolerance = 65f
             val horizontalRows = mutableListOf<MutableList<com.google.mlkit.vision.text.Text.Line>>()
 
             for (line in listingLines) {
@@ -894,18 +858,26 @@ class LootBuyerAccessibilityService : AccessibilityService() {
                     AutoBuyerLogs.addLog("Lot $foundLotsCount - Цена $price ($decisionText)")
 
                     if (matchesThreshold) {
-                        if (config.enableActualBuying) {
-                            // Calculate center of this row to click on the handshake/buy icon
-                            val left = row.mapNotNull { it.boundingBox?.left }.minOrNull() ?: 0
-                            val right = row.mapNotNull { it.boundingBox?.right }.maxOrNull() ?: 0
-                            val top = row.mapNotNull { it.boundingBox?.top }.minOrNull() ?: 0
-                            val bottom = row.mapNotNull { it.boundingBox?.bottom }.maxOrNull() ?: 0
+                        val left = row.mapNotNull { it.boundingBox?.left }.minOrNull() ?: 0
+                        val right = row.mapNotNull { it.boundingBox?.right }.maxOrNull() ?: 0
+                        val top = row.mapNotNull { it.boundingBox?.top }.minOrNull() ?: 0
+                        val bottom = row.mapNotNull { it.boundingBox?.bottom }.maxOrNull() ?: 0
 
-                            val clickX = ((left + right) / 2f) * scaleX
-                            val clickY = ((top + bottom) / 2f) * scaleY
+                        val actualItemName = when {
+                            targetCategoryTab.contains("emerald", ignoreCase = true) || targetCategoryTab.contains("изум", ignoreCase = true) -> "Изумруд"
+                            targetCategoryTab.contains("ruby", ignoreCase = true) || targetCategoryTab.contains("руб", ignoreCase = true) -> "Рубин"
+                            targetCategoryTab.contains("sapphire", ignoreCase = true) || targetCategoryTab.contains("сап", ignoreCase = true) -> "Сапфир"
+                            else -> targetCategoryTab
+                        }
+
+                        if (config.enableActualBuying) {
+                            // Click directly on the center / handshake icon of the lot card
+                            val lotCenterY = ((top + bottom) / 2f) * scaleY
+                            val clickX = (screenWidth * 0.50f).coerceIn(screenWidth * 0.35f, screenWidth * 0.75f)
+                            val clickY = lotCenterY.coerceIn(screenHeight * 0.51f, screenHeight * 0.87f)
 
                             val clickStart = System.currentTimeMillis()
-                            AutoBuyerLogs.addLog("👉 [$clickStart] Кликаем кнопку покупки в координатах ($clickX, $clickY) с рандомизацией")
+                            AutoBuyerLogs.addLog("👉 [$clickStart] Кликаем по карточке лота в координатах ($clickX, $clickY) для открытия покупки...")
                             clickAtWithRandomization(clickX, clickY, config)
 
                             // Wait for the confirmation dialog to open
@@ -921,15 +893,15 @@ class LootBuyerAccessibilityService : AccessibilityService() {
                                 val logPrefix = if (config.calibratedConfirmX != -1f) "🎯 [КАЛИБРОВАННОЕ ПОДТВЕРЖДЕНИЕ]" else "⚡ [БЫСТРОЕ ПОДТВЕРЖДЕНИЕ]"
                                 AutoBuyerLogs.addLog("$logPrefix Нажимаем кнопку 'Confirm' в координатах ($finalConfirmX, $finalConfirmY) с рандомизацией")
                                 clickAtWithRandomization(finalConfirmX, finalConfirmY, config)
- 
-                                // Save purchase record to database
+
+                                // Save purchase record to database with actual verified item name
                                 try {
-                                    val purchaseMsg = formatPurchaseMessage(q, config.targetItemName, price)
+                                    val purchaseMsg = formatPurchaseMessage(q, actualItemName, price)
                                     val db = AppDatabase.getDatabase(this@LootBuyerAccessibilityService)
                                     db.purchaseDao().insertPurchase(
                                         PurchaseRecord(
                                             timestamp = System.currentTimeMillis(),
-                                            itemName = config.targetItemName,
+                                            itemName = actualItemName,
                                             price = price,
                                             quantity = q,
                                             details = purchaseMsg
@@ -940,7 +912,7 @@ class LootBuyerAccessibilityService : AccessibilityService() {
                                 } catch (e: Exception) {
                                     AutoBuyerLogs.addLog("⚠️ Ошибка записи покупки: ${e.message}")
                                 }
- 
+
                                 // Set temporary cooldown while we verify the purchase result
                                 cooldownUntilMillis = System.currentTimeMillis() + 15 * 1000L
                                 AutoBuyerLogs.addLog("👉 Нажали подтверждение покупки (быстрое). Ожидаем результат...")
@@ -1023,14 +995,14 @@ class LootBuyerAccessibilityService : AccessibilityService() {
                                         AutoBuyerLogs.addLog("🎉 [ПОДТВЕРЖДЕНИЕ] Нажимаем кнопку 'Buy' в окне подтверждения в координатах ($dClickX, $dClickY)")
                                         clickAt(dClickX, dClickY)
 
-                                        // Save purchase record to database
+                                        // Save purchase record to database with actual verified item name
                                         try {
-                                            val purchaseMsg = formatPurchaseMessage(q, config.targetItemName, price)
+                                            val purchaseMsg = formatPurchaseMessage(q, actualItemName, price)
                                             val db = AppDatabase.getDatabase(this@LootBuyerAccessibilityService)
                                             db.purchaseDao().insertPurchase(
                                                 PurchaseRecord(
                                                     timestamp = System.currentTimeMillis(),
-                                                    itemName = config.targetItemName,
+                                                    itemName = actualItemName,
                                                     price = price,
                                                     quantity = q,
                                                     details = purchaseMsg
@@ -1331,16 +1303,16 @@ class LootBuyerAccessibilityService : AccessibilityService() {
                 .replace('g', '9')
                 .replace('q', '9')
                 .replace('z', '2')
+                .replace('Z', '2')
 
-            // If we have a comma instead of dot in a decimal structure (e.g., '5,6000' or '7000,0000'),
-            // let's replace comma with dot if there is no other dot in the string.
+            // Normalize commas/dots
             if (!cleaned.contains('.') && cleaned.contains(',')) {
                 cleaned = cleaned.replace(',', '.')
             }
 
-            // SMART OCR RECOVERY: The game strictly formats all prices and quantities with 4 decimal places (e.g., 0.8000).
-            // If OCR misread the dot entirely (e.g., "O8000" became "08000" with no dot), but the number has 4 or more digits,
-            // we reconstruct the dot at exactly 4 positions from the end.
+            // SMART OCR RECOVERY: The game strictly formats all prices and quantities with decimal places (e.g. 0.8000).
+            // If OCR misread the dot entirely (e.g., "08000" or "8000"), but the number has 4 or more digits,
+            // we reconstruct the dot at exactly 4 positions from the end if there's no dot present.
             if (!cleaned.contains('.')) {
                 val digitsOnly = cleaned.filter { it.isDigit() }
                 if (digitsOnly.length >= 4) {
@@ -1376,7 +1348,7 @@ class LootBuyerAccessibilityService : AccessibilityService() {
 
                 return "$preDotStr.$postDotStr".toDoubleOrNull()
             } else {
-                // No dot found, handle potential thousands separators (e.g. 1,500)
+                // No dot found, extract raw integer digits or handle thousands
                 val pattern = Pattern.compile("(\\d{1,3}(?:,\\d{3})+|\\d+)")
                 val matcher = pattern.matcher(cleaned)
                 if (matcher.find()) {
@@ -1436,26 +1408,17 @@ class LootBuyerAccessibilityService : AccessibilityService() {
     }
 
     private fun isLogOrOverlayText(text: String): Boolean {
-        val lower = text.lowercase()
-        return lower.contains("[") || 
-               lower.contains("]") || 
-               lower.contains("лот") || 
-               lower.contains("мониторинг") || 
-               lower.contains("покупка") || 
-               lower.contains("panel") || 
-               lower.contains("панель") || 
+        val lower = text.lowercase().trim()
+        return lower.startsWith("[") || 
+               lower.endsWith("]") || 
                lower.contains("live log") || 
                lower.contains("threshold") || 
                lower.contains("mode:") || 
                lower.contains("попытка") || 
                lower.contains("кликаем") || 
                lower.contains("координатах") || 
-               lower.contains("вкладку") || 
-               lower.contains("вкладки") || 
                lower.contains("ocr:") || 
                lower.contains("распознанные") ||
-               lower.contains("количество") ||
-               lower.contains("цена") ||
                lower.contains("выполняем")
     }
 
@@ -1687,6 +1650,43 @@ class LootBuyerAccessibilityService : AccessibilityService() {
 
             return true
         }
+        return false
+    }
+
+    private suspend fun dismissSellOrUnwantedModalIfNeeded(
+        lines: List<com.google.mlkit.vision.text.Text.Line>,
+        scaleX: Float,
+        scaleY: Float,
+        screenWidth: Float,
+        screenHeight: Float
+    ): Boolean {
+        val fullText = lines.joinToString(" ") { it.text.lowercase() }
+        val isSellModalOpen = fullText.contains("calculation") ||
+                fullText.contains("post") ||
+                fullText.contains("days on the market") ||
+                fullText.contains("you will receive") ||
+                (fullText.contains("amount") && fullText.contains("price") && fullText.contains("piece")) ||
+                fullText.contains("sale's fee") ||
+                fullText.contains("purchase's fee")
+
+        if (isSellModalOpen) {
+            AutoBuyerLogs.addLog("⚠️ [ОКНО ПРОДАЖИ ОБНАРУЖЕНО] На экране открыто окно продажи/расчета ('Post/Sell'). Закрываем окно кликом по (X) и переключаемся на 'Buy'...")
+            
+            // 1. Click yellow ( X ) close button at top-left of the modal (X: 14%, Y: 28%)
+            val closeX = screenWidth * 0.14f
+            val closeY = screenHeight * 0.28f
+            clickAt(closeX, closeY)
+            delay(500)
+
+            // 2. Also ensure we click the 'Buy' market tab (X: 20%, Y: 30%)
+            val buyTabX = screenWidth * 0.20f
+            val buyTabY = screenHeight * 0.30f
+            clickAt(buyTabX, buyTabY)
+            delay(500)
+
+            return true
+        }
+
         return false
     }
 

@@ -124,6 +124,7 @@ dependencies {
   implementation("com.squareup.moshi:moshi-kotlin:1.15.2")
   implementation("com.squareup.okhttp3:okhttp:4.10.0")
   implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.1")
+  implementation("com.quickbirdstudios:opencv:4.5.3.0")
   implementation("com.squareup.retrofit2:retrofit:2.12.0")
 
   testImplementation("androidx.compose.ui:ui-test-junit4")

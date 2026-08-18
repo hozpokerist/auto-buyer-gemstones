@@ -47,6 +47,9 @@ import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -1326,61 +1329,115 @@ fun DashboardScreen(
                             fontWeight = FontWeight.Bold
                         )
                     }
-                    Text(
-                        text = "СКОПИРОВАТЬ НАСТРОЙКИ И ЛОГ",
-                        color = Color(0xFFBB86FC),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier
-                            .clickable {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Button(
+                            onClick = {
                                 val configHeader = buildString {
                                     appendLine("=== НАСТРОЙКИ БОТА (BOT CONFIG) ===")
                                     appendLine("Целевой предмет: $itemNameInput")
                                     appendLine("Порог цены: $thresholdInput")
                                     appendLine("Оператор: ${if (isLessThan) "< (Меньше)" else "> (Больше)"}")
                                     appendLine("Задержка сканирования: ${scanInterval.toInt()} ms")
-                                    appendLine("Задержка вкладок OCR: ${tabSwitchInterval.toInt()} ms")
+                                    appendLine("Задержка вкладок: ${tabSwitchInterval.toInt()} ms")
                                     appendLine("Режим сканирования: ${if (useViewScanning) "View Node Scanning" else "Coordinate/OCR Scanning"}")
                                     appendLine("Реальная покупка: ${if (enableActualBuying) "ВКЛЮЧЕНА" else "ВЫКЛЮЧЕНА (Только логи)"}")
-                                    appendLine("Доступность включена: $isAccessibilityEnabled")
-                                    appendLine("Оверлей разрешен: $isOverlayGranted")
                                     appendLine("====================================\n")
                                 }
-                                val logsText = configHeader + AutoBuyerLogs.logsFlow.replayCache.joinToString("\n")
-                                
+                                val allLogs = AutoBuyerLogs.getAllLogsText()
+                                val logsText = if (allLogs.isNotEmpty()) {
+                                    configHeader + allLogs
+                                } else {
+                                    configHeader + liveLogs.joinToString("\n")
+                                }
+
                                 val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                                 val clip = android.content.ClipData.newPlainText("AutoBuyer Logs & Config", logsText)
                                 clipboard.setPrimaryClip(clip)
-                                
-                                Toast.makeText(context, "Настройки и логи скопированы!", Toast.LENGTH_SHORT).show()
-                            }
-                            .padding(8.dp)
-                    )
+
+                                Toast.makeText(context, "✅ Все логи и настройки скопированы в буфер обмена!", Toast.LENGTH_LONG).show()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6200EE)),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            modifier = Modifier.height(30.dp),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ContentCopy,
+                                contentDescription = "Copy logs",
+                                tint = Color.White,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("КОПИРОВАТЬ", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        Button(
+                            onClick = {
+                                val allLogs = AutoBuyerLogs.getAllLogsText()
+                                val sendIntent = Intent().apply {
+                                    action = Intent.ACTION_SEND
+                                    putExtra(Intent.EXTRA_TEXT, allLogs)
+                                    type = "text/plain"
+                                }
+                                val shareIntent = Intent.createChooser(sendIntent, "Экспорт логов бота")
+                                context.startActivity(shareIntent)
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3700B3)),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            modifier = Modifier.height(30.dp),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = "Share logs",
+                                tint = Color.White,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("ЭКСПОРТ", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        Button(
+                            onClick = {
+                                AutoBuyerLogs.clearLogs()
+                                liveLogs.clear()
+                                Toast.makeText(context, "Логи очищены", Toast.LENGTH_SHORT).show()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3E2723)),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            modifier = Modifier.height(30.dp),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text("ОЧИСТИТЬ", color = Color(0xFFEF5350), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
                 Spacer(modifier = Modifier.height(12.dp))
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(180.dp)
-                        .verticalScroll(rememberScrollState())
-                ) {
-                    if (liveLogs.isEmpty()) {
-                        Text(
-                            text = "No logs yet. Enable Accessibility or Start automation to see activities.",
-                            color = Color.Gray,
-                            fontSize = 12.sp,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.fillMaxWidth(),
-                            textAlign = TextAlign.Center
-                        )
-                    } else {
-                        liveLogs.forEach { logLine ->
+                SelectionContainer {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        if (liveLogs.isEmpty()) {
                             Text(
-                                text = logLine,
-                                color = Color.Green,
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace
+                                text = "No logs yet. Enable Accessibility or Start automation to see activities.",
+                                color = Color.Gray,
+                                fontSize = 12.sp,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.fillMaxWidth(),
+                                textAlign = TextAlign.Center
                             )
+                        } else {
+                            liveLogs.forEach { logLine ->
+                                Text(
+                                    text = logLine,
+                                    color = Color.Green,
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
                         }
                     }
                 }

@@ -441,11 +441,13 @@ class OverlayControlService : Service() {
         }
         logHeaderLayout.addView(logHeader)
 
-        val copyBtn = TextView(this).apply {
-            text = "COPY ALL"
-            setTextColor(Color.parseColor("#BB86FC")) // Elegant purple accent color
-            setPadding(12, 6, 12, 6)
-            textSize = 12f
+        val copyBtn = Button(this).apply {
+            text = "📋 КОПИРОВАТЬ"
+            setBackgroundColor(Color.parseColor("#6200EE"))
+            setTextColor(Color.WHITE)
+            textSize = 10f
+            setPadding(12, 4, 12, 4)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, (32 * resources.displayMetrics.density).toInt())
             setOnClickListener {
                 val configHeader = currentConfig?.let { config ->
                     buildString {
@@ -454,21 +456,46 @@ class OverlayControlService : Service() {
                         appendLine("Порог цены: ${config.priceThreshold}")
                         appendLine("Оператор: ${if (config.isLessThanOperator) "< (Меньше)" else "> (Больше)"}")
                         appendLine("Задержка сканирования: ${config.scanIntervalMs} ms")
-                        appendLine("Задержка вкладок OCR: ${config.tabSwitchIntervalMs} ms")
+                        appendLine("Задержка вкладок: ${config.tabSwitchIntervalMs} ms")
                         appendLine("Режим сканирования: ${if (config.useViewScanning) "View Node Scanning" else "Coordinate/OCR Scanning"}")
                         appendLine("Реальная покупка: ${if (config.enableActualBuying) "ВКЛЮЧЕНА" else "ВЫКЛЮЧЕНА (Только логи)"}")
                         appendLine("====================================\n")
                     }
                 } ?: "=== НАСТРОЙКИ БОТА: НЕ ЗАГРУЖЕНЫ ===\n"
 
-                val logsText = configHeader + AutoBuyerLogs.logsFlow.replayCache.joinToString("\n")
+                val logsText = configHeader + AutoBuyerLogs.getAllLogsText()
                 val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                 val clip = android.content.ClipData.newPlainText("AutoBuyer Logs & Config", logsText)
                 clipboard.setPrimaryClip(clip)
-                android.widget.Toast.makeText(this@OverlayControlService, "Настройки и логи скопированы!", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(this@OverlayControlService, "✅ Логи скопированы в буфер!", android.widget.Toast.LENGTH_SHORT).show()
             }
         }
         logHeaderLayout.addView(copyBtn)
+
+        val shareBtn = Button(this).apply {
+            text = "📤 ЭКСПОРТ"
+            setBackgroundColor(Color.parseColor("#3700B3"))
+            setTextColor(Color.WHITE)
+            textSize = 10f
+            setPadding(12, 4, 12, 4)
+            val params = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, (32 * resources.displayMetrics.density).toInt())
+            params.leftMargin = (6 * resources.displayMetrics.density).toInt()
+            layoutParams = params
+            setOnClickListener {
+                val allLogs = AutoBuyerLogs.getAllLogsText()
+                val sendIntent = Intent().apply {
+                    action = Intent.ACTION_SEND
+                    putExtra(Intent.EXTRA_TEXT, allLogs)
+                    type = "text/plain"
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                val shareIntent = Intent.createChooser(sendIntent, "Экспорт логов бота").apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(shareIntent)
+            }
+        }
+        logHeaderLayout.addView(shareBtn)
         rootLayout.addView(logHeaderLayout)
 
         val logScroll = ScrollView(this).apply {
